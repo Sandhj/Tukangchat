@@ -53,13 +53,19 @@ const delay = (ms) => new Promise(r => setTimeout(r, ms));
 
 const CONFIG = {
     minDelay: 5000,
-    maxDelay: 12000,
+    maxDelay: 15000,
     batchDelay: 60000,
-    typingDelay: [2000, 5000],
+    typingDelay: [2000, 7000],
     retry: 3,
     reconnectDelay: 8000,
     connectionCheckInterval: 3000
 };
+
+/* =========================
+   LOOPING CONFIG (Interaksi Antar Device)
+========================= */
+let isLooping = false;
+let loopTimeout = null;
 
 const LOOP_CONFIG = {
     defaultDurationMinutes: 30,
@@ -67,18 +73,16 @@ const LOOP_CONFIG = {
     maxInterval: 22000
 };
 
-const SESSIONS_DIR = './sessions';
-const HISTORY_FILE = './nomor_wa.txt';
-
-if (!fs.existsSync(SESSIONS_DIR)) fs.mkdirSync(SESSIONS_DIR, { recursive: true });
-
 /* =========================
    GLOBAL
 ========================= */
 let activeSockets = new Map();
 let successCount = 0, failCount = 0, totalSent = 0;
-let isLooping = false;
-let loopTimeout = null;
+
+const SESSIONS_DIR = './sessions';
+const HISTORY_FILE = './nomor_wa.txt';
+
+if (!fs.existsSync(SESSIONS_DIR)) fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 
 /* =========================
    UI HELPER
@@ -106,10 +110,26 @@ function clearAndShowHeader(title = BOT_NAME) {
 const MESSAGES = [
     "Halo kak 😊", "Hai kak 🙏", "Halo kak ✨", "Hai kak 😄", "Permisi kak 😊",
     "Halo kak, apa kabar hari ini? 😊", "Hai kak, semoga harinya lancar ya 🙏",
+    "Lagi apa nih? 😊", "Semoga harinya lancar ya 🙌", "Pagi kak 🌅",
+    "Siang kak ☀️", "Malam kak 🌙", "Kangen chat sama kamu 😁",
+    "Gimana kabarnya? 😊", "Lama ga chat nih 😂",
     "Halo kak! Seneng banget kamu chat lagi 😊", "Hai kak 😄 Gimana hari ini?",
-    "Wah halo! Lama ga chat ya, kangen loh 😊", "Kangen juga chat sama kamu loh 😘",
-    "Halo kak 🌞 Gimana kabarnya hari ini?", "Malam kak 🌙 Chat dari kamu bikin hari aku cerah",
-    "Aku baik kak, makasih! Kamu sendiri gimana kabarnya? 😊", "Wah seneng banget! Aku juga kangen chat sama kakak ❤️"
+    "Apa kabar kak? Aku baik nih, kamu gimana? ✨", "Wah halo! Lama ga chat ya, kangen loh 😊",
+    "Hai kak 🙌 Semangat terus ya hari ini!", "Halo kak 😊 Lagi apa nih yang bikin kangen chat?",
+    "Kangen juga chat sama kamu loh 😘", "Hai kak! Baru aja kepikiran kamu, eh kamu chat duluan",
+    "Wah kangen chat sama aku ya? Aku lebih kangen tau 😂", "Halo kak 🌞 Gimana kabarnya hari ini?",
+    "Siang kak ☀️ Cerita dong, lagi apa?", "Malam kak 🌙 Chat dari kamu bikin hari aku cerah",
+    "Halo! Aku baik, tambah baik kalau chat sama kakak 😊", "Lama ga chat nih, aku kira kakak lupa sama aku 😢",
+    "Halo kak 😄 Seneng dapet chat dari kamu", "Apa kabar? Semoga hari ini lebih baik dari kemarin ya 🙏",
+    "Halo kak! Lagi santai atau sibuk nih?", "Aku baik kak, makasih! Kamu sendiri gimana kabarnya? 😊",
+    "Lagi santai nih, kamu lagi apa kak? Cerita dong 😄", "Kangen juga banget sama kamu 😘",
+    "Aku kangen loh, makanya langsung chat 😂", "Hari ini lumayan kak, kamu gimana? Semangat ya! ✨",
+    "Wah seneng banget! Aku juga kangen chat sama kakak ❤️", "Baik kak, makasih doanya! Kamu semoga lancar juga ya 🙌",
+    "Pagi kak! 🌅 Aku baru bangun nih, kakak udah sarapan belum?", "Siang kak ☀️ Lagi makan siang belum? Aku baru aja selesai",
+    "Malam kak 🌙 Lagi apa nih malam-malam? Cerita yuk", "Haha engga lupa kok, malah sering kepikiran kamu 😊",
+    "Aku lagi mikirin kamu juga tadi, telepati dong kita 😄", "Cerita dong kak, hari ini ada hal seru ga? Aku mau denger 😊",
+    "Makasih kak 😊 Kamu juga semangat ya hari ini!", "Wah seru dong! Ceritain lebih detail yuk",
+    "Aku juga kangen banget, kapan-kapan ketemu yuk 😁", "Hari ini biasa aja sih, tapi jadi lebih baik setelah chat sama kamu ❤️"
 ];
 
 function randomMessage() { 
@@ -335,7 +355,7 @@ async function loadAllDevices() {
 }
 
 /* =========================
-   WARMING (Fungsi Lama)
+   WARMING KE NOMOR EKSTERNAL
 ========================= */
 async function startWarming(deviceName) {
     const sock = activeSockets.get(deviceName);
@@ -393,7 +413,7 @@ async function startWarming(deviceName) {
 }
 
 /* =========================
-   INTERAKSI ANTAR DEVICE (Menu 9 - Fitur Baru)
+   FITUR BARU: INTERAKSI ANTAR DEVICE (Menu 9)
 ========================= */
 async function startDeviceInteractionLoop() {
     const onlineDevices = Array.from(activeSockets.keys());
@@ -427,6 +447,7 @@ async function startDeviceInteractionLoop() {
         const senderName = onlineDevices[senderIndex];
         const sock = activeSockets.get(senderName);
 
+        // Pilih receiver secara random (bukan diri sendiri)
         let receiverIndex = senderIndex;
         while (receiverIndex === senderIndex) {
             receiverIndex = Math.floor(Math.random() * onlineDevices.length);
@@ -463,6 +484,7 @@ async function startDeviceInteractionLoop() {
         if (isLooping) stopDeviceInteraction();
     }, durationMin * 60 * 1000);
 
+    // Status sisa waktu
     setInterval(() => {
         if (isLooping) {
             const remaining = Math.ceil((endTime - Date.now()) / 60000);
@@ -498,6 +520,9 @@ async function showMainMenu() {
         devices.forEach(d => console.log(`   • ${d} ${deviceStatus(d)}`));
     }
 
+    const onlineCount = Array.from(activeSockets.keys()).length;
+    console.log(color.cyan + `\nOnline: ${onlineCount} device\n` + color.reset);
+
     console.log(color.cyan + `
 ════════════════════════════════════════════════════════════
 1. Tambahkan Device Baru
@@ -509,7 +534,6 @@ async function showMainMenu() {
 7. Reset Semua Sessions
 8. Refresh All Devices
 9. 🔥 INTERAKSI ANTAR DEVICE (Saling Chat seperti Manusia)
-
 0. Keluar
 ` + color.reset);
 
