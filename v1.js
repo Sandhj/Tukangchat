@@ -60,7 +60,7 @@ const CONFIG = {
 };
 
 /* =========================
-   LOOPING CONFIG (Fitur Terbaru)
+   LOOPING CONFIG
 ========================= */
 let isLooping = false;
 let loopTimeout = null;
@@ -105,60 +105,18 @@ function clearAndShowHeader(title = BOT_NAME) {
 /* =========================
    RANDOM MESSAGE
 ========================= */
-/*const MESSAGES = [
+const MESSAGES = [
     "Halo kak 😊", "Hai kak 🙏", "Apa kabar hari ini? ✨", "Hai kak 😄",
     "Lagi apa nih? 😊", "Semoga harinya lancar ya 🙌", "Pagi kak 🌅",
     "Siang kak ☀️", "Malam kak 🌙", "Kangen chat sama kamu 😁",
-    "Gimana kabarnya? 😊", "Lama ga chat nih 😂"
-];*/
-
-const MESSAGES = [
-    "Halo kak 😊", 
-    "Hai kak 🙏", 
-    "Apa kabar hari ini? ✨", 
-    "Hai kak 😄",
-    "Lagi apa nih? 😊", 
-    "Semoga harinya lancar ya 🙌", 
-    "Pagi kak 🌅",
-    "Siang kak ☀️", 
-    "Malam kak 🌙", 
-    "Kangen chat sama kamu 😁",
-    "Gimana kabarnya? 😊", 
-    "Lama ga chat nih 😂",
-    "Halo kak! Seneng banget kamu chat lagi 😊",
-    "Hai kak 😄 Gimana hari ini?",
-    "Apa kabar kak? Aku baik nih, kamu gimana? ✨",
-    "Wah halo! Lama ga chat ya, kangen loh 😊",
-    "Hai kak 🙌 Semangat terus ya hari ini!",
-    "Halo kak 😊 Lagi apa nih yang bikin kangen chat?",
-    "Kangen juga chat sama kamu loh 😘",
-    "Hai kak! Baru aja kepikiran kamu, eh kamu chat duluan",
-    "Wah kangen chat sama aku ya? Aku lebih kangen tau 😂",
-    "Halo kak 🌞 Gimana kabarnya hari ini?",
-    "Siang kak ☀️ Cerita dong, lagi apa?",
-    "Malam kak 🌙 Chat dari kamu bikin hari aku cerah",
-    "Halo! Aku baik, tambah baik kalau chat sama kakak 😊",
-    "Lama ga chat nih, aku kira kakak lupa sama aku 😢",
-    "Halo kak 😄 Seneng dapet chat dari kamu",
-    "Apa kabar? Semoga hari ini lebih baik dari kemarin ya 🙏",
-    "Halo kak! Lagi santai atau sibuk nih?",
-    "Aku baik kak, makasih! Kamu sendiri gimana kabarnya? 😊",
-    "Lagi santai nih, kamu lagi apa kak? Cerita dong 😄",
-    "Kangen juga banget sama kamu 😘",
-    "Aku kangen loh, makanya langsung chat 😂",
-    "Hari ini lumayan kak, kamu gimana? Semangat ya! ✨",
-    "Wah seneng banget! Aku juga kangen chat sama kakak ❤️",
-    "Baik kak, makasih doanya! Kamu semoga lancar juga ya 🙌",
-    "Pagi kak! 🌅 Aku baru bangun nih, kakak udah sarapan belum?",
-    "Siang kak ☀️ Lagi makan siang belum? Aku baru aja selesai",
-    "Malam kak 🌙 Lagi apa nih malam-malam? Cerita yuk",
-    "Haha engga lupa kok, malah sering kepikiran kamu 😊",
-    "Aku lagi mikirin kamu juga tadi, telepati dong kita 😄",
-    "Cerita dong kak, hari ini ada hal seru ga? Aku mau denger 😊",
-    "Makasih kak 😊 Kamu juga semangat ya hari ini!",
-    "Wah seru dong! Ceritain lebih detail yuk",
-    "Aku juga kangen banget, kapan-kapan ketemu yuk 😁",
-    "Hari ini biasa aja sih, tapi jadi lebih baik setelah chat sama kamu ❤️"
+    "Gimana kabarnya? 😊", "Lama ga chat nih 😂",
+    "Halo kak! Seneng banget kamu chat lagi 😊", "Hai kak 😄 Gimana hari ini?",
+    "Wah halo! Lama ga chat ya, kangen loh 😊", "Hai kak 🙌 Semangat terus ya hari ini!",
+    "Kangen juga chat sama kamu loh 😘", "Halo kak 🌞 Gimana kabarnya hari ini?",
+    "Siang kak ☀️ Cerita dong, lagi apa?", "Malam kak 🌙 Chat dari kamu bikin hari aku cerah",
+    "Halo! Aku baik, tambah baik kalau chat sama kakak 😊", "Haha engga lupa kok, malah sering kepikiran kamu 😊",
+    "Aku lagi mikirin kamu juga tadi, telepati dong kita 😄", "Cerita dong kak, hari ini ada hal seru ga?",
+    "Wah seneng banget! Aku juga kangen chat sama kakak ❤️", "Kangen juga banget sama kamu 😘"
 ];
 
 function randomMessage() { 
@@ -195,16 +153,21 @@ function getDevices() {
     );
 }
 
+/* ====================== PERBAIKAN UTAMA ====================== */
 async function createNewDevice() {
     clearAndShowHeader("TAMBAH DEVICE BARU");
 
-    const name = await question(color.cyan + "Nama device (contoh: wa1): " + color.reset);
-    if (!name || name.trim() === "") return showMainMenu();
+    const name = (await question(color.cyan + "Nama device (contoh: wa1): " + color.reset)).trim();
+    if (!name) {
+        console.log(color.red + "❌ Nama device tidak boleh kosong!" + color.reset);
+        await delay(1500);
+        return showMainMenu();
+    }
 
     const sessionPath = path.join(SESSIONS_DIR, name);
     if (fs.existsSync(sessionPath)) {
-        console.log(color.red + "❌ Device dengan nama tersebut sudah ada!" + color.reset);
-        await delay(2000);
+        console.log(color.red + `❌ Device "${name}" sudah ada!` + color.reset);
+        await delay(1500);
         return showMainMenu();
     }
 
@@ -216,7 +179,7 @@ async function createNewDevice() {
     const sock = makeWASocket({
         version,
         logger: pino({ level: 'silent' }),
-        browser: Browsers.ubuntu('Chrome'),        // Lebih stabil untuk pairing code
+        browser: Browsers.macOS('Chrome'),
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
@@ -224,100 +187,75 @@ async function createNewDevice() {
         printQRInTerminal: false,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
+        keepAliveIntervalMs: 30000
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Event listener utama untuk mendeteksi status koneksi
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        if (connection === 'connecting') {
-            console.log(color.yellow + "Menghubungkan ke WhatsApp..." + color.reset);
-        }
-
         if (connection === 'open') {
-            console.log(color.green + `\n✅ Device "${name}" BERHASIL TERHUBUNG!` + color.reset);
-            console.log(color.green + `   Nomor: ${sock.user.id.split(':')[0]}` + color.reset);
+            console.log(color.green + `\n✅ Device "${name}" BERHASIL TERHUBUNG!\n` + color.reset);
             activeSockets.set(name, sock);
-            await delay(1500);
-            showMainMenu();
+            setTimeout(showMainMenu, 2000);
             return;
         }
 
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
-
-            if (statusCode === DisconnectReason.loggedOut) {
-                console.log(color.red + `\n❌ Device "${name}" telah logout.` + color.reset);
-                activeSockets.delete(name);
-            } else if (statusCode === DisconnectReason.connectionClosed || statusCode === 428) {
-                console.log(color.yellow + `\n⚠️ Koneksi tertutup. Mencoba reconnect otomatis...` + color.reset);
+            if (statusCode !== DisconnectReason.loggedOut) {
+                console.log(color.yellow + `🔄 Device "${name}" terputus, mencoba reconnect...` + color.reset);
                 setTimeout(() => startDevice(name), CONFIG.reconnectDelay);
             } else {
-                console.log(color.red + `\n❌ Koneksi gagal (Code: ${statusCode || 'unknown'})` + color.reset);
+                console.log(color.red + `❌ Device "${name}" logout.` + color.reset);
+                activeSockets.delete(name);
             }
-            showMainMenu();
+            return;
+        }
+
+        // === REQUEST PAIRING CODE ===
+        if (!sock.authState.creds.registered && (connection === 'connecting' || qr)) {
+            try {
+                const phone = await question(color.cyan + "Masukkan nomor WhatsApp (628xxx tanpa +): " + color.reset);
+
+                if (!phone || !/^\d{10,15}$/.test(phone)) {
+                    console.log(color.red + "❌ Nomor tidak valid! Contoh: 6281234567890" + color.reset);
+                    sock.end();
+                    return;
+                }
+
+                console.log(color.yellow + "⏳ Meminta pairing code..." + color.reset);
+                const code = await sock.requestPairingCode(phone);
+
+                console.log('\n' + color.green + `🔑 Pairing Code: ${code}` + color.reset);
+                console.log(color.cyan + "\nCara menghubungkan:" + color.reset);
+                console.log(color.white + "1. Buka WhatsApp di HP kamu" + color.reset);
+                console.log(color.white + "2. Pergi ke Pengaturan → Perangkat Tertaut" + color.reset);
+                console.log(color.white + "3. Pilih 'Hubungkan Perangkat' → 'Hubungkan dengan Kode'" + color.reset);
+                console.log(color.white + `4. Masukkan kode: ${code}\n` + color.reset);
+
+            } catch (err) {
+                console.log(color.red + `❌ Gagal meminta pairing code: ${err.message || err}` + color.reset);
+                if (err.message?.includes('429')) {
+                    console.log(color.yellow + "⚠️ Terlalu banyak percobaan. Tunggu 5-10 menit lalu coba lagi." + color.reset);
+                }
+                sock.end();
+            }
         }
     });
 
-    // Proses pairing code (baru dilakukan setelah socket siap)
-    if (!sock.authState.creds.registered) {
-        const phone = await question(color.cyan + "Masukkan nomor WhatsApp (628xxxxxxxxxx): " + color.reset);
-
-        if (!phone || !/^\d+$/.test(phone)) {
-            console.log(color.red + "❌ Nomor tidak valid!" + color.reset);
-            await delay(1500);
-            return showMainMenu();
+    // Fallback check
+    setTimeout(() => {
+        if (!activeSockets.has(name)) {
+            console.log(color.yellow + `⏳ Device "${name}" masih dalam proses koneksi...` + color.reset);
         }
-
-        try {
-            console.log(color.yellow + "Meminta pairing code..." + color.reset);
-            
-            // Tunggu sebentar agar socket benar-benar siap
-            await delay(1500);
-
-            const code = await sock.requestPairingCode(phone);
-            
-            console.log('\n' + color.green + `🔑 Pairing Code: ${code}` + color.reset);
-            console.log(color.cyan + "Cara menghubungkan:" + color.reset);
-            console.log("1. Buka WhatsApp di HP kamu");
-            console.log("2. Ke Pengaturan → Perangkat Tertaut → Hubungkan Perangkat");
-            console.log("3. Pilih 'Hubungkan dengan nomor telepon'");
-            console.log("4. Masukkan kode di atas\n");
-
-            // Deteksi otomatis jika pairing berhasil
-            let attempts = 0;
-            const maxAttempts = 60; // maksimal tunggu \~3 menit
-
-            const checkInterval = setInterval(() => {
-                attempts++;
-                if (sock.user && sock.authState.creds.registered) {
-                    clearInterval(checkInterval);
-                    console.log(color.green + `\n✅ Pairing BERHASIL! Device "${name}" sudah online.` + color.reset);
-                    activeSockets.set(name, sock);
-                    setTimeout(showMainMenu, 1500);
-                } else if (attempts >= maxAttempts) {
-                    clearInterval(checkInterval);
-                    console.log(color.yellow + `\n⏰ Waktu tunggu habis. Silakan coba lagi jika belum terhubung.` + color.reset);
-                    showMainMenu();
-                }
-            }, 3000);
-
-        } catch (err) {
-            console.log(color.red + `\n❌ Gagal meminta pairing code: ${err.message}` + color.reset);
-            console.log(color.yellow + "Tips: Coba gunakan nomor dengan format 628xxx (tanpa + atau spasi)" + color.reset);
-            await delay(2000);
-            showMainMenu();
-        }
-    } else {
-        // Jika session sudah ada sebelumnya
-        console.log(color.green + `✅ Device "${name}" sudah terdaftar, mencoba connect...` + color.reset);
-        activeSockets.set(name, sock);
-        setTimeout(showMainMenu, 1500);
-    }
+    }, 45000);
 }
 
+/* =========================
+   START DEVICE
+========================= */
 async function startDevice(deviceName) {
     const sessionPath = path.join(SESSIONS_DIR, deviceName);
     if (!fs.existsSync(sessionPath)) return;
@@ -329,13 +267,21 @@ async function startDevice(deviceName) {
         version,
         logger: pino({ level: 'silent' }),
         browser: Browsers.macOS('Chrome'),
-        auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })) }
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
+        }
     });
 
     sock.ev.on('creds.update', saveCreds);
     sock.ev.on('connection.update', (update) => {
-        if (update.connection === 'open') activeSockets.set(deviceName, sock);
-        if (update.connection === 'close') activeSockets.delete(deviceName);
+        if (update.connection === 'open') {
+            activeSockets.set(deviceName, sock);
+            console.log(color.green + `✅ ${deviceName} ONLINE` + color.reset);
+        }
+        if (update.connection === 'close') {
+            activeSockets.delete(deviceName);
+        }
     });
 
     return sock;
@@ -350,7 +296,7 @@ async function loadAllDevices() {
 }
 
 /* =========================
-   WARMING KE NOMOR EKSTERNAL (Fitur Lama)
+   WARMING KE NOMOR EKSTERNAL
 ========================= */
 async function startWarming(deviceName) {
     const sock = activeSockets.get(deviceName);
@@ -360,7 +306,7 @@ async function startWarming(deviceName) {
         return showMainMenu();
     }
 
-    await disconnectAllExcept(deviceName); // Disconnect device lain
+    await disconnectAllExcept(deviceName);
 
     let targets = loadTargets();
     if (targets.length === 0) {
@@ -410,7 +356,7 @@ async function disconnectAllExcept(exceptDevice) {
 }
 
 /* =========================
-   FITUR TERBARU: INTERAKSI ANTAR DEVICE
+   INTERAKSI ANTAR DEVICE
 ========================= */
 async function startDeviceInteractionLoop() {
     const onlineDevices = Array.from(activeSockets.keys());
@@ -444,7 +390,6 @@ async function startDeviceInteractionLoop() {
         const senderName = onlineDevices[senderIndex];
         const sock = activeSockets.get(senderName);
 
-        // Pilih receiver secara random (bukan diri sendiri)
         let receiverIndex = senderIndex;
         while (receiverIndex === senderIndex) {
             receiverIndex = Math.floor(Math.random() * onlineDevices.length);
@@ -461,7 +406,6 @@ async function startDeviceInteractionLoop() {
 
             await sock.sendPresenceUpdate('composing', receiverJid);
             await delay(randomDelay(...CONFIG.typingDelay));
-
             await sock.sendMessage(receiverJid, { text: message });
 
             console.log(color.green + `   ✅ Berhasil dari ${senderName} ke ${receiverName}\n` + color.reset);
@@ -481,7 +425,6 @@ async function startDeviceInteractionLoop() {
         if (isLooping) stopDeviceInteraction();
     }, durationMin * 60 * 1000);
 
-    // Status sisa waktu
     setInterval(() => {
         if (isLooping) {
             const remaining = Math.ceil((endTime - Date.now()) / 60000);
