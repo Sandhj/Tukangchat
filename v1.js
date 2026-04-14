@@ -53,17 +53,13 @@ const delay = (ms) => new Promise(r => setTimeout(r, ms));
 
 const CONFIG = {
     minDelay: 5000,
-    maxDelay: 15000,
-    typingDelay: [2000, 7000],
+    maxDelay: 12000,
+    batchDelay: 60000,
+    typingDelay: [2000, 5000],
+    retry: 3,
     reconnectDelay: 8000,
     connectionCheckInterval: 3000
 };
-
-/* =========================
-   LOOPING CONFIG
-========================= */
-let isLooping = false;
-let loopTimeout = null;
 
 const LOOP_CONFIG = {
     defaultDurationMinutes: 30,
@@ -71,16 +67,18 @@ const LOOP_CONFIG = {
     maxInterval: 22000
 };
 
+const SESSIONS_DIR = './sessions';
+const HISTORY_FILE = './nomor_wa.txt';
+
+if (!fs.existsSync(SESSIONS_DIR)) fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+
 /* =========================
    GLOBAL
 ========================= */
 let activeSockets = new Map();
 let successCount = 0, failCount = 0, totalSent = 0;
-
-const SESSIONS_DIR = './sessions';
-const HISTORY_FILE = './nomor_wa.txt';
-
-if (!fs.existsSync(SESSIONS_DIR)) fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+let isLooping = false;
+let loopTimeout = null;
 
 /* =========================
    UI HELPER
@@ -106,17 +104,12 @@ function clearAndShowHeader(title = BOT_NAME) {
    RANDOM MESSAGE
 ========================= */
 const MESSAGES = [
-    "Halo kak 😊", "Hai kak 🙏", "Apa kabar hari ini? ✨", "Hai kak 😄",
-    "Lagi apa nih? 😊", "Semoga harinya lancar ya 🙌", "Pagi kak 🌅",
-    "Siang kak ☀️", "Malam kak 🌙", "Kangen chat sama kamu 😁",
-    "Gimana kabarnya? 😊", "Lama ga chat nih 😂",
+    "Halo kak 😊", "Hai kak 🙏", "Halo kak ✨", "Hai kak 😄", "Permisi kak 😊",
+    "Halo kak, apa kabar hari ini? 😊", "Hai kak, semoga harinya lancar ya 🙏",
     "Halo kak! Seneng banget kamu chat lagi 😊", "Hai kak 😄 Gimana hari ini?",
-    "Wah halo! Lama ga chat ya, kangen loh 😊", "Hai kak 🙌 Semangat terus ya hari ini!",
-    "Kangen juga chat sama kamu loh 😘", "Halo kak 🌞 Gimana kabarnya hari ini?",
-    "Siang kak ☀️ Cerita dong, lagi apa?", "Malam kak 🌙 Chat dari kamu bikin hari aku cerah",
-    "Halo! Aku baik, tambah baik kalau chat sama kakak 😊", "Haha engga lupa kok, malah sering kepikiran kamu 😊",
-    "Aku lagi mikirin kamu juga tadi, telepati dong kita 😄", "Cerita dong kak, hari ini ada hal seru ga?",
-    "Wah seneng banget! Aku juga kangen chat sama kakak ❤️", "Kangen juga banget sama kamu 😘"
+    "Wah halo! Lama ga chat ya, kangen loh 😊", "Kangen juga chat sama kamu loh 😘",
+    "Halo kak 🌞 Gimana kabarnya hari ini?", "Malam kak 🌙 Chat dari kamu bikin hari aku cerah",
+    "Aku baik kak, makasih! Kamu sendiri gimana kabarnya? 😊", "Wah seneng banget! Aku juga kangen chat sama kakak ❤️"
 ];
 
 function randomMessage() { 
@@ -144,6 +137,52 @@ function loadTargets() {
         });
 }
 
+async function updateSystem() {
+    console.log(color.yellow + "\n🔄 Melakukan pembaruan sistem otomatis...\n" + color.reset);
+    
+    try {
+        console.log(color.cyan + "Menghapus file lama..." + color.reset);
+        execSync('rm -rf node_modules package-lock.json session package.json', { stdio: 'inherit' });
+
+        console.log(color.cyan + "Inisialisasi package.json baru..." + color.reset);
+        execSync('npm init -y', { stdio: 'inherit' });
+
+        console.log(color.cyan + "Menginstall dependencies terbaru..." + color.reset);
+        execSync('npm install @whiskeysockets/baileys pino', { stdio: 'inherit' });
+
+        console.log(color.green + "\n✅ Pembaruan sistem berhasil!\n" + color.reset);
+        await delay(2000);
+        showMainMenu();
+
+    } catch (err) {
+        console.log(color.red + "\n❌ Gagal melakukan update sistem:\n" + err.message + color.reset);
+        await delay(2000);
+        showMainMenu();
+    }
+}
+
+async function replaceTargets() {
+    clearAndShowHeader("REPLACE TARGET");
+    console.log(color.yellow + "Masukkan nomor baru (satu per baris). Ketik 'selesai' untuk selesai:\n" + color.reset);
+    
+    let numbers = [];
+    
+    async function ask() {
+        const input = await question(color.cyan + "> " + color.reset);
+        
+        if (!input || input.toLowerCase() === 'selesai') {
+            fs.writeFileSync(HISTORY_FILE, numbers.join('\n'));
+            console.log(color.green + `\n✅ Berhasil menyimpan ${numbers.length} nomor target.\n` + color.reset);
+            await updateSystem();
+        } else {
+            numbers.push(input.trim());
+            ask();
+        }
+    }
+    
+    ask();
+}
+
 /* =========================
    DEVICE MANAGEMENT
 ========================= */
@@ -153,25 +192,36 @@ function getDevices() {
     );
 }
 
-/* ====================== PERBAIKAN UTAMA ====================== */
+async function disconnectAllExcept(exceptDevice) {
+    console.log(color.yellow + `🔌 Memutuskan koneksi semua device kecuali "${exceptDevice}"...\n` + color.reset);
+    
+    for (const [deviceName, sock] of activeSockets.entries()) {
+        if (deviceName !== exceptDevice) {
+            try {
+                sock.end();
+                activeSockets.delete(deviceName);
+                console.log(color.red + `   ❌ ${deviceName} telah didisconnect` + color.reset);
+            } catch (e) {
+                console.log(color.yellow + `   ⚠️ Gagal disconnect ${deviceName}` + color.reset);
+            }
+        }
+    }
+    await delay(1000);
+}
+
 async function createNewDevice() {
     clearAndShowHeader("TAMBAH DEVICE BARU");
-
-    const name = (await question(color.cyan + "Nama device (contoh: wa1): " + color.reset)).trim();
-    if (!name) {
-        console.log(color.red + "❌ Nama device tidak boleh kosong!" + color.reset);
-        await delay(1500);
-        return showMainMenu();
-    }
+    const name = await question(color.cyan + "Nama device (contoh: wa1): " + color.reset);
+    if (!name) return showMainMenu();
 
     const sessionPath = path.join(SESSIONS_DIR, name);
     if (fs.existsSync(sessionPath)) {
-        console.log(color.red + `❌ Device "${name}" sudah ada!` + color.reset);
+        console.log(color.red + "❌ Device sudah ada!" + color.reset);
         await delay(1500);
         return showMainMenu();
     }
 
-    console.log(color.yellow + `\nMembuat device baru: ${name}...\n` + color.reset);
+    console.log(color.yellow + `\nMembuat device: ${name}...\n` + color.reset);
 
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
     const { version } = await fetchLatestBaileysVersion();
@@ -184,78 +234,67 @@ async function createNewDevice() {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
         },
-        printQRInTerminal: false,
         connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 60000,
-        keepAliveIntervalMs: 30000
+        defaultQueryTimeoutMs: 60000
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
 
         if (connection === 'open') {
             console.log(color.green + `\n✅ Device "${name}" BERHASIL TERHUBUNG!\n` + color.reset);
             activeSockets.set(name, sock);
             setTimeout(showMainMenu, 2000);
-            return;
         }
 
         if (connection === 'close') {
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
-            if (statusCode !== DisconnectReason.loggedOut) {
-                console.log(color.yellow + `🔄 Device "${name}" terputus, mencoba reconnect...` + color.reset);
+            const code = lastDisconnect?.error?.output?.statusCode;
+            if (code !== DisconnectReason.loggedOut) {
+                console.log(color.yellow + `🔄 Reconnect ${name}...\n` + color.reset);
                 setTimeout(() => startDevice(name), CONFIG.reconnectDelay);
             } else {
-                console.log(color.red + `❌ Device "${name}" logout.` + color.reset);
                 activeSockets.delete(name);
-            }
-            return;
-        }
-
-        // === REQUEST PAIRING CODE ===
-        if (!sock.authState.creds.registered && (connection === 'connecting' || qr)) {
-            try {
-                const phone = await question(color.cyan + "Masukkan nomor WhatsApp (628xxx tanpa +): " + color.reset);
-
-                if (!phone || !/^\d{10,15}$/.test(phone)) {
-                    console.log(color.red + "❌ Nomor tidak valid! Contoh: 6281234567890" + color.reset);
-                    sock.end();
-                    return;
-                }
-
-                console.log(color.yellow + "⏳ Meminta pairing code..." + color.reset);
-                const code = await sock.requestPairingCode(phone);
-
-                console.log('\n' + color.green + `🔑 Pairing Code: ${code}` + color.reset);
-                console.log(color.cyan + "\nCara menghubungkan:" + color.reset);
-                console.log(color.white + "1. Buka WhatsApp di HP kamu" + color.reset);
-                console.log(color.white + "2. Pergi ke Pengaturan → Perangkat Tertaut" + color.reset);
-                console.log(color.white + "3. Pilih 'Hubungkan Perangkat' → 'Hubungkan dengan Kode'" + color.reset);
-                console.log(color.white + `4. Masukkan kode: ${code}\n` + color.reset);
-
-            } catch (err) {
-                console.log(color.red + `❌ Gagal meminta pairing code: ${err.message || err}` + color.reset);
-                if (err.message?.includes('429')) {
-                    console.log(color.yellow + "⚠️ Terlalu banyak percobaan. Tunggu 5-10 menit lalu coba lagi." + color.reset);
-                }
-                sock.end();
             }
         }
     });
 
-    // Fallback check
-    setTimeout(() => {
-        if (!activeSockets.has(name)) {
-            console.log(color.yellow + `⏳ Device "${name}" masih dalam proses koneksi...` + color.reset);
+    if (!sock.authState.creds.registered) {
+        const phone = await question(color.cyan + "Nomor WhatsApp (628xxx): " + color.reset);
+        try {
+            const code = await sock.requestPairingCode(phone);
+            console.log(color.green + `\n🔑 Pairing Code: ${code}` + color.reset);
+            console.log(color.yellow + "→ Buka WA → Linked Devices → Link a Device → Masukkan kode\n" + color.reset);
+            console.log(color.cyan + "Menunggu koneksi... (10-30 detik)\n" + color.reset);
+
+            let attempts = 0;
+            const maxAttempts = 40;
+            const checkInterval = setInterval(() => {
+                attempts++;
+                if (sock.user || (sock.authState?.creds?.registered && activeSockets.has(name))) {
+                    clearInterval(checkInterval);
+                    console.log(color.green + `\n✅ Device "${name}" terdeteksi ONLINE!\n` + color.reset);
+                    activeSockets.set(name, sock);
+                    setTimeout(showMainMenu, 1500);
+                } else if (attempts >= maxAttempts) {
+                    clearInterval(checkInterval);
+                    console.log(color.yellow + "\n⚠️ Waktu tunggu habis.\n" + color.reset);
+                    showMainMenu();
+                }
+            }, CONFIG.connectionCheckInterval);
+
+        } catch (e) {
+            console.log(color.red + "❌ Gagal mendapatkan pairing code." + color.reset);
+            showMainMenu();
         }
-    }, 45000);
+    } else {
+        activeSockets.set(name, sock);
+        console.log(color.green + `✅ ${name} sudah terdaftar, mencoba koneksi...` + color.reset);
+        setTimeout(showMainMenu, 1500);
+    }
 }
 
-/* =========================
-   START DEVICE
-========================= */
 async function startDevice(deviceName) {
     const sessionPath = path.join(SESSIONS_DIR, deviceName);
     if (!fs.existsSync(sessionPath)) return;
@@ -274,10 +313,10 @@ async function startDevice(deviceName) {
     });
 
     sock.ev.on('creds.update', saveCreds);
+
     sock.ev.on('connection.update', (update) => {
         if (update.connection === 'open') {
             activeSockets.set(deviceName, sock);
-            console.log(color.green + `✅ ${deviceName} ONLINE` + color.reset);
         }
         if (update.connection === 'close') {
             activeSockets.delete(deviceName);
@@ -296,7 +335,7 @@ async function loadAllDevices() {
 }
 
 /* =========================
-   WARMING KE NOMOR EKSTERNAL
+   WARMING (Fungsi Lama)
 ========================= */
 async function startWarming(deviceName) {
     const sock = activeSockets.get(deviceName);
@@ -310,13 +349,18 @@ async function startWarming(deviceName) {
 
     let targets = loadTargets();
     if (targets.length === 0) {
-        console.log(color.red + "\n❌ File nomor_wa.txt kosong!\n" + color.reset);
+        console.log(color.red + "\n❌ nomor_wa.txt kosong!\n" + color.reset);
         await delay(1500);
         return showMainMenu();
     }
 
     targets = [...targets].sort(() => Math.random() - 0.5);
+
     clearAndShowHeader(`WARMING → \( {deviceName} ( \){targets.length} target)`);
+
+    console.log(color.magenta + "╔════════════════════════════════════════════════════════════╗" + color.reset);
+    console.log(color.magenta + "║                    SEDANG MELAKUKAN WARMING                ║" + color.reset);
+    console.log(color.magenta + "╚════════════════════════════════════════════════════════════╝\n" + color.reset);
 
     for (let i = 0; i < targets.length; i++) {
         const jid = targets[i];
@@ -340,23 +384,16 @@ async function startWarming(deviceName) {
         await delay(randomDelay(CONFIG.minDelay, CONFIG.maxDelay));
     }
 
-    console.log(color.green + `\n🎉 Warming selesai untuk ${deviceName}!\n` + color.reset);
+    console.log(color.green + `\n🎉 Batch warming selesai untuk ${deviceName}!\n` + color.reset);
+    console.log(color.yellow + "\n🔄 Refreshing semua device...\n" + color.reset);
     activeSockets.clear();
-    await loadAllDevices();
-    await delay(2000);
+    await loadAllDevices(); 
+    await delay(3000);
     showMainMenu();
 }
 
-async function disconnectAllExcept(exceptDevice) {
-    for (const [name, sock] of activeSockets.entries()) {
-        if (name !== exceptDevice) {
-            try { sock.end(); activeSockets.delete(name); } catch (e) {}
-        }
-    }
-}
-
 /* =========================
-   INTERAKSI ANTAR DEVICE
+   INTERAKSI ANTAR DEVICE (Menu 9 - Fitur Baru)
 ========================= */
 async function startDeviceInteractionLoop() {
     const onlineDevices = Array.from(activeSockets.keys());
@@ -406,6 +443,7 @@ async function startDeviceInteractionLoop() {
 
             await sock.sendPresenceUpdate('composing', receiverJid);
             await delay(randomDelay(...CONFIG.typingDelay));
+
             await sock.sendMessage(receiverJid, { text: message });
 
             console.log(color.green + `   ✅ Berhasil dari ${senderName} ke ${receiverName}\n` + color.reset);
@@ -453,12 +491,12 @@ async function showMainMenu() {
     clearAndShowHeader();
 
     const devices = getDevices();
-    const onlineCount = Array.from(activeSockets.keys()).length;
-
     console.log(color.cyan + "📱 Device Terdaftar:" + color.reset);
-    devices.forEach(d => console.log(`   • ${d} ${deviceStatus(d)}`));
-
-    console.log(color.cyan + `\nOnline: ${onlineCount} device\n` + color.reset);
+    if (devices.length === 0) {
+        console.log(color.yellow + "   Belum ada device.\n" + color.reset);
+    } else {
+        devices.forEach(d => console.log(`   • ${d} ${deviceStatus(d)}`));
+    }
 
     console.log(color.cyan + `
 ════════════════════════════════════════════════════════════
@@ -466,11 +504,12 @@ async function showMainMenu() {
 2. List Device
 3. Hapus Device
 4. Status Device Terhubung
-5. Mulai Warming (ke Nomor Eksternal)
+5. Mulai Warming (Pilih Device)
 6. Replace Nomor Target
 7. Reset Semua Sessions
 8. Refresh All Devices
 9. 🔥 INTERAKSI ANTAR DEVICE (Saling Chat seperti Manusia)
+
 0. Keluar
 ` + color.reset);
 
@@ -513,29 +552,12 @@ async function showMainMenu() {
             if (activeSockets.has(chosen)) {
                 startWarming(chosen);
             } else {
-                console.log(color.red + "\n❌ Device tidak online!" + color.reset);
+                console.log(color.red + "\n❌ Device tidak online atau tidak ditemukan!" + color.reset);
                 await delay(1500);
                 showMainMenu();
             }
             break;
-        case '6':
-            clearAndShowHeader("REPLACE TARGET");
-            console.log(color.yellow + "Masukkan nomor baru (satu per baris). Ketik 'selesai' untuk selesai:\n" + color.reset);
-            let numbers = [];
-            async function ask() {
-                const input = await question(color.cyan + "> " + color.reset);
-                if (!input || input.toLowerCase() === 'selesai') {
-                    fs.writeFileSync(HISTORY_FILE, numbers.join('\n'));
-                    console.log(color.green + `\n✅ Berhasil menyimpan ${numbers.length} nomor.\n` + color.reset);
-                    await delay(1000);
-                    showMainMenu();
-                } else {
-                    numbers.push(input.trim());
-                    ask();
-                }
-            }
-            ask();
-            break;
+        case '6': await replaceTargets(); break;
         case '7':
             if ((await question(color.red + "Yakin reset SEMUA sessions? (y/n): " + color.reset)).toLowerCase() === 'y') {
                 fs.rmSync(SESSIONS_DIR, { recursive: true, force: true });
@@ -568,7 +590,7 @@ async function showMainMenu() {
    START
 ========================= */
 (async () => {
-    console.log(color.green + "🚀 Multi Session Bot Warming dengan Fitur Interaksi Antar Device\n" + color.reset);
+    console.log(color.green + "🚀 Multi Session Bot Warming + Interaksi Antar Device\n" + color.reset);
     await loadAllDevices();
     setTimeout(showMainMenu, 1500);
 })();
