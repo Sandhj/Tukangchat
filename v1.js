@@ -196,6 +196,23 @@ function getDevices() {
     );
 }
 
+
+                    setTimeout(showMainMenu, 1500);
+                } else if (attempts >= 40) {
+                    clearInterval(checkInterval);
+                    showMainMenu();
+                }
+            }, CONFIG.connectionCheckInterval);
+        } catch (e) {
+            console.log(color.red + "❌ Gagal mendapatkan pairing code." + color.reset);
+            showMainMenu();
+        }
+    } else {
+        activeSockets.set(name, sock);
+        setTimeout(showMainMenu, 1500);
+    }
+}
+
 async function createNewDevice() {
     clearAndShowHeader("TAMBAH DEVICE BARU");
     const name = await question(color.cyan + "Nama device (contoh: wa1): " + color.reset);
@@ -217,21 +234,29 @@ async function createNewDevice() {
         version,
         logger: pino({ level: 'silent' }),
         browser: Browsers.macOS('Chrome'),
-        auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })) },
-        connectTimeoutMs: 60000
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
+        },
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000
     });
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
+
         if (connection === 'open') {
             console.log(color.green + `\n✅ Device "${name}" BERHASIL TERHUBUNG!\n` + color.reset);
             activeSockets.set(name, sock);
             setTimeout(showMainMenu, 2000);
         }
+
         if (connection === 'close') {
-            if (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut) {
+            const code = lastDisconnect?.error?.output?.statusCode;
+            if (code !== DisconnectReason.loggedOut) {
+                console.log(color.yellow + `🔄 Reconnect ${name}...\n` + color.reset);
                 setTimeout(() => startDevice(name), CONFIG.reconnectDelay);
             } else {
                 activeSockets.delete(name);
@@ -244,30 +269,34 @@ async function createNewDevice() {
         try {
             const code = await sock.requestPairingCode(phone);
             console.log(color.green + `\n🔑 Pairing Code: ${code}` + color.reset);
-            console.log(color.yellow + "Buka WhatsApp → Linked Devices → Link a Device\n" + color.reset);
+            console.log(color.yellow + "→ Buka WA → Linked Devices → Link a Device → Masukkan kode\n" + color.reset);
+            console.log(color.cyan + "Menunggu koneksi... (10-30 detik)\n" + color.reset);
 
             let attempts = 0;
+            const maxAttempts = 40;
             const checkInterval = setInterval(() => {
                 attempts++;
-                if (sock.user) {
+                if (sock.user || (sock.authState?.creds?.registered && activeSockets.has(name))) {
                     clearInterval(checkInterval);
+                    console.log(color.green + `\n✅ Device "${name}" terdeteksi ONLINE!\n` + color.reset);
                     activeSockets.set(name, sock);
-                    console.log(color.green + `\n✅ Device "${name}" ONLINE!\n` + color.reset);
                     setTimeout(showMainMenu, 1500);
-                } else if (attempts >= 40) {
+                } else if (attempts >= maxAttempts) {
                     clearInterval(checkInterval);
+                    console.log(color.yellow + "\n⚠️ Waktu tunggu habis.\n" + color.reset);
                     showMainMenu();
                 }
             }, CONFIG.connectionCheckInterval);
+
         } catch (e) {
             console.log(color.red + "❌ Gagal mendapatkan pairing code." + color.reset);
             showMainMenu();
         }
     } else {
         activeSockets.set(name, sock);
+        console.log(color.green + `✅ ${name} sudah terdaftar, mencoba koneksi...` + color.reset);
         setTimeout(showMainMenu, 1500);
     }
-}
 
 async function startDevice(deviceName) {
     const sessionPath = path.join(SESSIONS_DIR, deviceName);
