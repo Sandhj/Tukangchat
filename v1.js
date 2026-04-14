@@ -213,6 +213,7 @@ function getDevices() {
     }
 }
 
+
 async function createNewDevice() {
     clearAndShowHeader("TAMBAH DEVICE BARU");
     const name = await question(color.cyan + "Nama device (contoh: wa1): " + color.reset);
@@ -297,6 +298,7 @@ async function createNewDevice() {
         console.log(color.green + `✅ ${name} sudah terdaftar, mencoba koneksi...` + color.reset);
         setTimeout(showMainMenu, 1500);
     }
+}
 
 async function startDevice(deviceName) {
     const sessionPath = path.join(SESSIONS_DIR, deviceName);
