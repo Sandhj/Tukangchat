@@ -194,13 +194,16 @@ async function disconnectAllExcept(exceptDevice) {
 
 async function createNewDevice() {
     clearAndShowHeader("TAMBAH DEVICE BARU");
+
     const name = await question(color.cyan + "Nama device (contoh: wa1): " + color.reset);
-    if (!name) return showMainMenu();
+    if (!name || name.trim() === "") {
+        return showMainMenu();
+    }
 
     const sessionPath = path.join(SESSIONS_DIR, name);
     if (fs.existsSync(sessionPath)) {
-        console.log(color.red + "❌ Device sudah ada!" + color.reset);
-        await delay(1500);
+        console.log(color.red + "❌ Device dengan nama itu sudah ada!" + color.reset);
+        await delay(2000);
         return showMainMenu();
     }
 
@@ -212,68 +215,97 @@ async function createNewDevice() {
     const sock = makeWASocket({
         version,
         logger: pino({ level: 'silent' }),
-        browser: Browsers.macOS('Chrome'),
+        browser: Browsers.ubuntu('Chrome'),     // Paling stabil untuk pairing code
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
         },
+        printQRInTerminal: false,
         connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 60000
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', (update) => {
+    // ====================== EVENT UTAMA ======================
+    sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
 
+        if (connection === 'connecting') {
+            console.log(color.yellow + "Menghubungkan ke WhatsApp..." + color.reset);
+        }
+
         if (connection === 'open') {
-            console.log(color.green + `\n✅ Device "${name}" BERHASIL TERHUBUNG!\n` + color.reset);
+            console.log(color.green + `\n✅ BERHASIL! Device "${name}" sudah terhubung.` + color.reset);
+            console.log(color.green + `   Nomor: ${sock.user?.id.split(':')[0] || 'Tidak terbaca'}` + color.reset);
             activeSockets.set(name, sock);
-            setTimeout(showMainMenu, 2000);
+            await delay(2000);
+            showMainMenu();
+            return;
         }
 
         if (connection === 'close') {
-            const code = lastDisconnect?.error?.output?.statusCode;
-            if (code !== DisconnectReason.loggedOut) {
-                console.log(color.yellow + `🔄 Reconnect ${name}...\n` + color.reset);
-                setTimeout(() => startDevice(name), CONFIG.reconnectDelay);
-            } else {
+            const reason = lastDisconnect?.error?.output?.statusCode;
+            if (reason === DisconnectReason.loggedOut) {
+                console.log(color.red + `\n❌ Device "${name}" logout dari WhatsApp.` + color.reset);
                 activeSockets.delete(name);
+            } else {
+                console.log(color.yellow + `\n⚠️ Koneksi putus. Kode: ${reason || 'unknown'}` + color.reset);
             }
+            showMainMenu();
         }
     });
 
+    // ====================== PROSES PAIRING CODE ======================
     if (!sock.authState.creds.registered) {
-        const phone = await question(color.cyan + "Nomor WhatsApp (628xxx): " + color.reset);
-        try {
-            const code = await sock.requestPairingCode(phone);
-            console.log(color.green + `\n🔑 Pairing Code: ${code}` + color.reset);
-            console.log(color.yellow + "→ Buka WA → Linked Devices → Link a Device → Masukkan kode\n" + color.reset);
-            console.log(color.cyan + "Menunggu koneksi... (10-30 detik)\n" + color.reset);
+        console.log(color.cyan + "\nMasukkan nomor WhatsApp yang akan dipakai sebagai device utama:" + color.reset);
+        const phone = await question(color.cyan + "Nomor (628xxxxxxxxxx): " + color.reset);
 
-            let attempts = 0;
-            const maxAttempts = 40;
-            const checkInterval = setInterval(() => {
-                attempts++;
-                if (sock.user || (sock.authState?.creds?.registered && activeSockets.has(name))) {
-                    clearInterval(checkInterval);
-                    console.log(color.green + `\n✅ Device "${name}" terdeteksi ONLINE!\n` + color.reset);
+        if (!phone || !/^\d{10,15}$/.test(phone)) {
+            console.log(color.red + "❌ Nomor tidak valid! Gunakan format 628xxxxxxxxxx" + color.reset);
+            await delay(2000);
+            return showMainMenu();
+        }
+
+        try {
+            console.log(color.yellow + "Meminta kode pairing..." + color.reset);
+            await delay(2000);                    // Tunggu socket siap
+
+            const code = await sock.requestPairingCode(phone);
+
+            console.log('\n' + color.bold + color.green + `🔑 KODE PAIRING:  ${code}` + color.reset + '\n');
+            console.log(color.white + "Cara menghubungkan:" + color.reset);
+            console.log("   1. Buka WhatsApp di HP");
+            console.log("   2. Pengaturan → Perangkat Tertaut → Hubungkan Perangkat");
+            console.log("   3. Pilih 'Hubungkan dengan nomor telepon'");
+            console.log("   4. Masukkan 8 digit kode di atas\n");
+
+            // Deteksi otomatis apakah pairing berhasil
+            let check = 0;
+            const maxCheck = 40;   // maksimal \~2 menit
+
+            const detector = setInterval(() => {
+                check++;
+                if (sock.user && sock.authState?.creds?.registered) {
+                    clearInterval(detector);
+                    console.log(color.green + `\n🎉 Pairing BERHASIL! Device "${name}" ONLINE.` + color.reset);
                     activeSockets.set(name, sock);
                     setTimeout(showMainMenu, 1500);
-                } else if (attempts >= maxAttempts) {
-                    clearInterval(checkInterval);
-                    console.log(color.yellow + "\n⚠️ Waktu tunggu habis.\n" + color.reset);
+                } else if (check >= maxCheck) {
+                    clearInterval(detector);
+                    console.log(color.yellow + `\n⏰ Tidak terdeteksi koneksi. Silakan coba lagi jika belum masuk.` + color.reset);
                     showMainMenu();
                 }
-            }, CONFIG.connectionCheckInterval);
+            }, 3000);
 
-        } catch (e) {
-            console.log(color.red + "❌ Gagal mendapatkan pairing code." + color.reset);
+        } catch (err) {
+            console.log(color.red + `\n❌ Gagal meminta kode pairing: ${err.message}` + color.reset);
+            await delay(2000);
             showMainMenu();
         }
     } else {
+        // Jika session sudah ada
+        console.log(color.green + `✅ Device "${name}" sudah terdaftar, mencoba connect...` + color.reset);
         activeSockets.set(name, sock);
-        console.log(color.green + `✅ ${name} sudah terdaftar, mencoba koneksi...` + color.reset);
         setTimeout(showMainMenu, 1500);
     }
 }
