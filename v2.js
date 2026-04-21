@@ -199,28 +199,6 @@ async function updateSystem() {
     }
 }
 
-async function replaceTargets() {
-    clearAndShowHeader("REPLACE TARGET");
-    console.log(color.yellow + "Masukkan nomor baru (satu per baris). Ketik 'selesai' untuk selesai:\n" + color.reset);
-    
-    let numbers = [];
-    
-    async function ask() {
-        const input = await question(color.cyan + "> " + color.reset);
-        
-        if (!input || input.toLowerCase() === 'selesai') {
-            fs.writeFileSync(HISTORY_FILE, numbers.join('\n'));
-            console.log(color.green + `\n✅ Berhasil menyimpan ${numbers.length} nomor target.\n` + color.reset);
-            await updateSystem();
-        } else {
-            numbers.push(input.trim());
-            ask();
-        }
-    }
-    
-    ask();
-}
-
 /* =========================
    DEVICE MANAGEMENT
 ========================= */
@@ -247,161 +225,90 @@ async function disconnectAllExcept(exceptDevice) {
     await delay(1000);
 }
 
-/* =========================
-   TAMBAH DEVICE BARU - MULTI (Max 10 Sekaligus)
-========================= */
 async function createNewDevice() {
-    clearAndShowHeader("TAMBAH DEVICE BARU (MULTI - MAX 10)");
+    clearAndShowHeader("TAMBAH DEVICE BARU");
+    const name = await question(color.cyan + "Nama device (contoh: wa1): " + color.reset);
+    if (!name) return showMainMenu();
 
-    console.log(color.yellow + "Masukkan hingga 10 nomor WhatsApp (628xx...)\nKetik 'selesai' untuk langsung proses yang sudah dimasukkan.\n" + color.reset);
-
-    let numbers = [];
-    let deviceNames = [];
-
-    async function askNumber() {
-        if (numbers.length >= 10) {
-            console.log(color.yellow + "\n✅ Sudah mencapai maksimal 10 nomor.\n" + color.reset);
-            return processMultiDevices(numbers);
-        }
-
-        const input = await question(color.cyan + `Nomor ${numbers.length + 1}/10 (628xxx atau 'selesai'): ` + color.reset);
-
-        if (!input || input.toLowerCase() === 'selesai') {
-            if (numbers.length === 0) {
-                console.log(color.red + "❌ Tidak ada nomor yang dimasukkan.\n" + color.reset);
-                await delay(1500);
-                return showMainMenu();
-            }
-            return processMultiDevices(numbers);
-        }
-
-        let cleanNum = input.replace(/[^0-9]/g, '');
-        if (cleanNum.startsWith('0')) cleanNum = '62' + cleanNum.slice(1);
-        if (!cleanNum.startsWith('62')) cleanNum = '62' + cleanNum;
-
-        if (cleanNum.length < 10) {
-            console.log(color.red + "❌ Nomor tidak valid!\n" + color.reset);
-            return askNumber();
-        }
-
-        const jid = cleanNum + '@s.whatsapp.net';
-        if (numbers.includes(jid)) {
-            console.log(color.yellow + "⚠️ Nomor ini sudah dimasukkan.\n" + color.reset);
-            return askNumber();
-        }
-
-        numbers.push(jid);
-
-        // Buat nama device otomatis: wa1, wa2, wa3, ...
-        const deviceName = `wa${String(numbers.length).padStart(2, '0')}`;
-        deviceNames.push(deviceName);
-
-        console.log(color.green + `   ✓ ${cleanNum} → Device: ${deviceName}` + color.reset);
-        askNumber();
-    }
-
-    await askNumber();
-}
-
-// Fungsi utama untuk memproses multiple devices
-async function processMultiDevices(numbers) {
-    console.log(color.magenta + `\n🚀 Memproses ${numbers.length} device sekaligus...\n` + color.reset);
-
-    const pairingData = [];
-
-    for (let i = 0; i < numbers.length; i++) {
-        const phone = numbers[i].replace('@s.whatsapp.net', '');
-        const deviceName = `wa${String(i + 1).padStart(2, '0')}`;
-
-        const sessionPath = path.join(SESSIONS_DIR, deviceName);
-
-        if (fs.existsSync(sessionPath)) {
-            console.log(color.yellow + `⚠️ Device ${deviceName} sudah ada, dilewati.` + color.reset);
-            continue;
-        }
-
-        console.log(color.cyan + `📱 Membuat device: ${deviceName} untuk ${phone}...` + color.reset);
-
-        const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
-        const { version } = await fetchLatestBaileysVersion();
-
-        const sock = makeWASocket({
-            version,
-            logger: pino({ level: 'silent' }),
-            browser: Browsers.macOS('Chrome'),
-            auth: {
-                creds: state.creds,
-                keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
-            },
-            connectTimeoutMs: 60000,
-            defaultQueryTimeoutMs: 60000
-        });
-
-        sock.ev.on('creds.update', saveCreds);
-
-        try {
-            if (!sock.authState.creds.registered) {
-                const code = await sock.requestPairingCode(phone);
-                pairingData.push({
-                    index: i + 1,
-                    phone: phone,
-                    code: code,
-                    deviceName: deviceName,
-                    sock: sock,
-                    status: 'Menunggu'
-                });
-
-                console.log(color.white + `   ${i + 1}. ${phone} → Kode: ${code} \( {color.yellow}(Menunggu) \){color.reset}` + color.reset);
-            }
-        } catch (err) {
-            console.log(color.red + `   ❌ Gagal mendapatkan kode untuk ${phone}: ${err.message}` + color.reset);
-        }
-
-        await delay(800); // Jeda kecil agar tidak terlalu cepat
-    }
-
-    if (pairingData.length === 0) {
-        console.log(color.red + "\n❌ Tidak ada device yang berhasil dibuat.\n" + color.reset);
-        await delay(2000);
+    const sessionPath = path.join(SESSIONS_DIR, name);
+    if (fs.existsSync(sessionPath)) {
+        console.log(color.red + "❌ Device sudah ada!" + color.reset);
+        await delay(1500);
         return showMainMenu();
     }
 
-    console.log(color.green + `\n✅ Semua kode pairing telah dibuat! Silakan masukkan di WhatsApp masing-masing.\n` + color.reset);
-    console.log(color.cyan + "Menunggu koneksi dari semua device...\n" + color.reset);
+    console.log(color.yellow + `\nMembuat device: ${name}...\n` + color.reset);
 
-    // Monitor semua device secara paralel
-    let completed = 0;
-    const total = pairingData.length;
+    const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+    const { version } = await fetchLatestBaileysVersion();
 
-    const checkIntervals = pairingData.map(data => {
-        return setInterval(() => {
-            const sock = data.sock;
-            if (sock?.user || (sock?.authState?.creds?.registered && activeSockets.has(data.deviceName))) {
-                clearInterval(checkIntervals[pairingData.indexOf(data)]);
-                data.status = 'Online';
-                completed++;
-
-                console.log(color.green + `   ${data.index}. ${data.phone} → ${data.code} \( {color.green}(Online) ✅ \){color.reset}` + color.reset);
-
-                activeSockets.set(data.deviceName, sock);
-
-                if (completed === total) {
-                    console.log(color.green + `\n🎉 Semua device berhasil terhubung!\n` + color.reset);
-                    setTimeout(showMainMenu, 2000);
-                }
-            }
-        }, CONFIG.connectionCheckInterval);
+    const sock = makeWASocket({
+        version,
+        logger: pino({ level: 'silent' }),
+        browser: Browsers.macOS('Chrome'),
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
+        },
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000
     });
 
-    // Timeout keseluruhan (maksimal 2 menit)
-    setTimeout(() => {
-        let stillWaiting = pairingData.filter(d => d.status === 'Menunggu');
-        if (stillWaiting.length > 0) {
-            console.log(color.yellow + `\n⚠️ Waktu tunggu habis. ${stillWaiting.length} device masih menunggu.\n` + color.reset);
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+
+        if (connection === 'open') {
+            console.log(color.green + `\n✅ Device "${name}" BERHASIL TERHUBUNG!\n` + color.reset);
+            activeSockets.set(name, sock);
+            setTimeout(showMainMenu, 2000);
         }
-        console.log(color.cyan + "\nTekan Enter untuk kembali ke menu utama..." + color.reset);
-        question("").then(() => showMainMenu());
-    }, 120000); // 2 menit
+
+        if (connection === 'close') {
+            const code = lastDisconnect?.error?.output?.statusCode;
+            if (code !== DisconnectReason.loggedOut) {
+                console.log(color.yellow + `🔄 Reconnect ${name}...\n` + color.reset);
+                setTimeout(() => startDevice(name), CONFIG.reconnectDelay);
+            } else {
+                activeSockets.delete(name);
+            }
+        }
+    });
+
+    if (!sock.authState.creds.registered) {
+        const phone = await question(color.cyan + "Nomor WhatsApp (628xxx): " + color.reset);
+        try {
+            const code = await sock.requestPairingCode(phone);
+            console.log(color.green + `\n🔑 Pairing Code: ${code}` + color.reset);
+            console.log(color.yellow + "→ Buka WA → Linked Devices → Link a Device → Masukkan kode\n" + color.reset);
+            console.log(color.cyan + "Menunggu koneksi... (10-30 detik)\n" + color.reset);
+
+            let attempts = 0;
+            const maxAttempts = 40;
+            const checkInterval = setInterval(() => {
+                attempts++;
+                if (sock.user || (sock.authState?.creds?.registered && activeSockets.has(name))) {
+                    clearInterval(checkInterval);
+                    console.log(color.green + `\n✅ Device "${name}" terdeteksi ONLINE!\n` + color.reset);
+                    activeSockets.set(name, sock);
+                    setTimeout(showMainMenu, 1500);
+                } else if (attempts >= maxAttempts) {
+                    clearInterval(checkInterval);
+                    console.log(color.yellow + "\n⚠️ Waktu tunggu habis.\n" + color.reset);
+                    showMainMenu();
+                }
+            }, CONFIG.connectionCheckInterval);
+
+        } catch (e) {
+            console.log(color.red + "❌ Gagal mendapatkan pairing code." + color.reset);
+            showMainMenu();
+        }
+    } else {
+        activeSockets.set(name, sock);
+        console.log(color.green + `✅ ${name} sudah terdaftar, mencoba koneksi...` + color.reset);
+        setTimeout(showMainMenu, 1500);
+    }
 }
 
 async function startDevice(deviceName) {
@@ -442,67 +349,9 @@ async function loadAllDevices() {
         await delay(600);
     }
 }
-
+   
 /* =========================
-   WARMING KE NOMOR EKSTERNAL
-========================= */
-async function startWarming(deviceName) {
-    const sock = activeSockets.get(deviceName);
-    if (!sock) {
-        console.log(color.red + `\n❌ Device ${deviceName} tidak online!\n` + color.reset);
-        await delay(1500);
-        return showMainMenu();
-    }
-
-    await disconnectAllExcept(deviceName);
-
-    let targets = loadTargets();
-    if (targets.length === 0) {
-        console.log(color.red + "\n❌ nomor_wa.txt kosong!\n" + color.reset);
-        await delay(1500);
-        return showMainMenu();
-    }
-
-    targets = [...targets].sort(() => Math.random() - 0.5);
-
-    clearAndShowHeader(`WARMING → \( {deviceName} ( \){targets.length} target)`);
-
-    console.log(color.magenta + "╔════════════════════════════════════════════════════════════╗" + color.reset);
-    console.log(color.magenta + "║                    SEDANG MELAKUKAN WARMING                ║" + color.reset);
-    console.log(color.magenta + "╚════════════════════════════════════════════════════════════╝\n" + color.reset);
-
-    for (let i = 0; i < targets.length; i++) {
-        const jid = targets[i];
-        const progress = Math.round(((i + 1) / targets.length) * 100);
-        const bar = '█'.repeat(Math.floor(progress / 5)) + '░'.repeat(20 - Math.floor(progress / 5));
-
-        console.log(color.white + `📍 Progress: \( {i + 1}/ \){targets.length} | ${bar} ${progress}%` + color.reset);
-        console.log(color.cyan + `   Mengirim ke: ${jid.replace('@s.whatsapp.net', '')}` + color.reset);
-
-        try {
-            await sock.sendPresenceUpdate('composing', jid);
-            await delay(randomDelay(...CONFIG.typingDelay));
-            await sock.sendMessage(jid, { text: randomMessage() });
-            console.log(color.green + `   ✅ Terkirim\n` + color.reset);
-            successCount++; totalSent++;
-        } catch (e) {
-            console.log(color.red + `   ❌ Gagal\n` + color.reset);
-            failCount++; totalSent++;
-        }
-
-        await delay(randomDelay(CONFIG.minDelay, CONFIG.maxDelay));
-    }
-
-    console.log(color.green + `\n🎉 Batch warming selesai untuk ${deviceName}!\n` + color.reset);
-    console.log(color.yellow + "\n🔄 Refreshing semua device...\n" + color.reset);
-    activeSockets.clear();
-    await loadAllDevices(); 
-    await delay(3000);
-    showMainMenu();
-}
-
-/* =========================
-   FITUR BARU: INTERAKSI ANTAR DEVICE (Menu 9)
+   FITUR BARU: INTERAKSI ANTAR DEVICE
 ========================= */
 async function startDeviceInteractionLoop() {
     const onlineDevices = Array.from(activeSockets.keys());
@@ -536,7 +385,6 @@ async function startDeviceInteractionLoop() {
         const senderName = onlineDevices[senderIndex];
         const sock = activeSockets.get(senderName);
 
-        // Pilih receiver secara random (bukan diri sendiri)
         let receiverIndex = senderIndex;
         while (receiverIndex === senderIndex) {
             receiverIndex = Math.floor(Math.random() * onlineDevices.length);
@@ -573,7 +421,6 @@ async function startDeviceInteractionLoop() {
         if (isLooping) stopDeviceInteraction();
     }, durationMin * 60 * 1000);
 
-    // Status sisa waktu
     setInterval(() => {
         if (isLooping) {
             const remaining = Math.ceil((endTime - Date.now()) / 60000);
@@ -596,7 +443,7 @@ function stopDeviceInteraction() {
 }
 
 /* =========================
-   MAIN MENU
+   MAIN MENU (Sudah diedit - menu 2,4,5,6 dihapus)
 ========================= */
 async function showMainMenu() {
     clearAndShowHeader();
@@ -615,11 +462,7 @@ async function showMainMenu() {
     console.log(color.cyan + `
 ════════════════════════════════════════════════════════════
 1. Tambahkan Device Baru
-2. List Device
 3. Hapus Device
-4. Status Device Terhubung
-5. Mulai Warming (Pilih Device)
-6. Replace Nomor Target
 7. Reset Semua Sessions
 8. Refresh All Devices
 9. 🔥 INTERAKSI ANTAR DEVICE (Saling Chat seperti Manusia)
@@ -630,12 +473,6 @@ async function showMainMenu() {
 
     switch (choice.trim()) {
         case '1': await createNewDevice(); break;
-        case '2':
-            clearAndShowHeader("LIST DEVICE");
-            getDevices().forEach((d, i) => console.log(`   ${i+1}. ${d} ${deviceStatus(d)}`));
-            await question("\nTekan Enter untuk kembali...");
-            showMainMenu();
-            break;
         case '3':
             clearAndShowHeader("HAPUS DEVICE");
             const delName = await question(color.cyan + "Nama device yang ingin dihapus: " + color.reset);
@@ -650,27 +487,6 @@ async function showMainMenu() {
             await delay(1500);
             showMainMenu();
             break;
-        case '4':
-            clearAndShowHeader("STATUS DEVICE");
-            const connected = Array.from(activeSockets.keys());
-            console.log(color.green + `Terhubung: ${connected.length} device\n` + color.reset);
-            connected.forEach(d => console.log(`   ● ${d}`));
-            await question("\nTekan Enter...");
-            showMainMenu();
-            break;
-        case '5':
-            clearAndShowHeader("PILIH DEVICE UNTUK WARMING");
-            getDevices().forEach((d, i) => console.log(`   ${i+1}. ${d} ${deviceStatus(d)}`));
-            const chosen = await question(color.cyan + "\nMasukkan nama device: " + color.reset);
-            if (activeSockets.has(chosen)) {
-                startWarming(chosen);
-            } else {
-                console.log(color.red + "\n❌ Device tidak online atau tidak ditemukan!" + color.reset);
-                await delay(1500);
-                showMainMenu();
-            }
-            break;
-        case '6': await replaceTargets(); break;
         case '7':
             if ((await question(color.red + "Yakin reset SEMUA sessions? (y/n): " + color.reset)).toLowerCase() === 'y') {
                 fs.rmSync(SESSIONS_DIR, { recursive: true, force: true });
